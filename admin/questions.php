@@ -5,6 +5,7 @@ requireAdmin();
 
 include '../database_connect.php';
 include 'upload_helper.php';
+require_once 'questions_model.php';
 
 $message = '';
 $message_type = '';
@@ -13,30 +14,12 @@ $form = [];
 
 $current_week = isset($_GET['week']) && is_numeric($_GET['week']) ? intval($_GET['week']) : 1;
 
-
-function next_display_order($conn, $week) {
-    $stmt = $conn->prepare("SELECT COALESCE(MAX(display_order), 0) + 1 AS next_order FROM questions WHERE week = ?");
-    $stmt->bind_param("i", $week);
-    $stmt->execute();
-    $row = $stmt->get_result()->fetch_assoc();
-    return intval($row['next_order']);
-}
-
-
-function next_question_number($conn, $week) {
-    $stmt = $conn->prepare("SELECT COALESCE(MAX(question_number), 0) + 1 AS next_num FROM questions WHERE week = ?");
-    $stmt->bind_param("i", $week);
-    $stmt->execute();
-    $row = $stmt->get_result()->fetch_assoc();
-    return intval($row['next_num']);
-}
-
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     if (isset($_POST['action'])) {
         if ($_POST['action'] == 'add') {
             $week = intval($_POST['week']);
             $question_number_input = trim($_POST['question_number'] ?? '');
-            $question_number = $question_number_input === '' ? next_question_number($conn, $week) : intval($question_number_input);
+            $question_number = $question_number_input === '' ? next_question_number($week) : intval($question_number_input);
             $question = trim($_POST['question']);
             $category = trim($_POST['category'] ?? 'Algemeen');
             $question_type = $_POST['question_type'] ?? 'text';
@@ -98,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $message_type = 'error';
                     $form = $_POST;
                 } else {
-                    $display_order = next_display_order($conn, $week);
+                    $display_order = next_display_order($week);
 
                     $stmt = $conn->prepare("INSERT INTO questions (week, question_number, question, answer, category, points, question_type, display_order, media_path, video_source, video_youtube_id, video_start, video_end) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)");
                     // Types: i i s s s s i s s s i i  (12 parameters)
@@ -216,13 +199,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         $category = trim($parts[2]);
                     }
                     // Pak het eerstvolgende vrije nummer uit de DB (voorkomt botsing met UNIQUE(week, question_number))
-                    $question_number = next_question_number($conn, $week);
+                    $question_number = next_question_number($week);
                 } else {
                     continue;
                 }
 
                 if (!empty($question) && !empty($answer)) {
-                    $display_order = next_display_order($conn, $week);
+                    $display_order = next_display_order($week);
                     $question_type = 'text';
                     $stmt = $conn->prepare("INSERT INTO questions (week, question_number, question, answer, category, points, question_type, display_order) VALUES (?, ?, ?, ?, ?, 1, ?, ?)");
                     $stmt->bind_param("iissssi", $week, $question_number, $question, $answer, $category, $question_type, $display_order);

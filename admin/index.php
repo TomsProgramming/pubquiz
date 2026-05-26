@@ -31,16 +31,19 @@ include '../database_connect.php';
                 <div class="card">
                     <h2>Statistieken</h2>
                     <?php
-                    $teams_result = $conn->query("SELECT COUNT(`id`) as total_teams FROM teams");
-                    $teams_row = $teams_result->fetch_assoc();
+                    $teams_result = $conn->prepare("SELECT COUNT(`id`) as total_teams FROM teams");
+                    $teams_result->execute();
+                    $teams_row = $teams_result->get_result()->fetch_assoc();
                     $total_teams = $teams_row['total_teams'];
 
-                    $questions_result = $conn->query("SELECT COUNT(`id`) as total_questions FROM questions");
-                    $questions_row = $questions_result->fetch_assoc();
+                    $questions_result = $conn->prepare("SELECT COUNT(`id`) as total_questions FROM questions");
+                    $questions_result->execute();
+                    $questions_row = $questions_result->get_result()->fetch_assoc();
                     $total_questions = $questions_row['total_questions'];
 
-                    $weeks_result = $conn->query("SELECT MAX(`week`) as max_week FROM questions");
-                    $weeks_row = $weeks_result->fetch_assoc();
+                    $weeks_result = $conn->prepare("SELECT MAX(`week`) as max_week FROM questions");
+                    $weeks_result->execute();
+                    $weeks_row = $weeks_result->get_result()->fetch_assoc();
                     $current_week = $weeks_row['max_week'] ?? 0;
                     ?>
                     <div class="stats">
@@ -72,7 +75,9 @@ include '../database_connect.php';
                         </thead>
                         <tbody>
                             <?php
-                            $result = $conn->query("SELECT `name`, `score` FROM teams ORDER BY score DESC LIMIT 5");
+                            $stmt = $conn->prepare("SELECT `name`, `score` FROM teams ORDER BY score DESC LIMIT 5");
+                            $stmt->execute();
+                            $result = $stmt->get_result();
                             $rank = 1;
                             while ($row = $result->fetch_assoc()) {
                                 echo "<tr>
@@ -111,9 +116,12 @@ include '../database_connect.php';
                         </thead>
                         <tbody>
                             <?php
-                            $recent = $conn->query("SELECT `question_number`, `question`, `category`, `answer` FROM questions WHERE week = " . ($current_week > 0 ? $current_week : 0) . " ORDER BY question_number LIMIT 10");
-                            if ($recent && $recent->num_rows > 0) {
-                                while ($row = $recent->fetch_assoc()) {
+                            $recent = $conn->prepare("SELECT `question_number`, `question`, `category`, `answer` FROM questions WHERE week = ? ORDER BY question_number LIMIT 10");
+                            $recent->bind_param("i", $current_week);
+                            $recent->execute();
+                            $recent_result = $recent->get_result();
+                            if ($recent_result && $recent_result->num_rows > 0) {
+                                while ($row = $recent_result->fetch_assoc()) {
                                     ?>
                                     <tr>
                                         <td><?= $row['question_number'] ?></td>

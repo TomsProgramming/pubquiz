@@ -21,7 +21,9 @@ include 'database_connect.php';
                 <h2 style="text-align: center; margin-bottom: 50px;">Ranglijst</h2>
                 
                 <?php
-                $result = $conn->query("SELECT `name`, `score` FROM teams ORDER BY score DESC LIMIT 3");
+                $stmt = $conn->prepare("SELECT `name`, `score` FROM teams ORDER BY score DESC LIMIT 3");
+                $stmt->execute();
+                $result = $stmt->get_result();
                 $top_teams = [];
                 if ($result && $result->num_rows > 0) {
                     while ($row = $result->fetch_assoc()) {
@@ -76,9 +78,11 @@ include 'database_connect.php';
                     </thead>
                     <tbody>
                         <?php
-                        $result = $conn->query("SELECT `name`, `score` FROM teams ORDER BY score DESC");
+                        $stmt = $conn->prepare("SELECT `name`, `score` FROM teams ORDER BY score DESC");
+                        $stmt->execute();
+                        $result = $stmt->get_result();
                         $rank = 1;
-                        
+
                         if ($result && $result->num_rows > 0) {
                             while ($row = $result->fetch_assoc()) {
                                 $medal = $rank == 1 ? '🥇' : ($rank == 2 ? '🥈' : ($rank == 3 ? '🥉' : ''));
