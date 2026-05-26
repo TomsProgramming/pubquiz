@@ -1,0 +1,17 @@
+# Voorkom uitvoeren van scripts in uploads directory
+php_flag engine off
+
+<FilesMatch "\.(php|phtml|phar|pl|py|cgi|sh|asp|aspx)$">
+    Require all denied
+</FilesMatch>
+
+# Fallback voor oudere Apache
+<IfModule !mod_authz_core.c>
+    <FilesMatch "\.(php|phtml|phar|pl|py|cgi|sh|asp|aspx)$">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</IfModule>
+
+Options -ExecCGI
+AddHandler cgi-script .php .phtml .phar .pl .py .cgi .sh
