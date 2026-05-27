@@ -146,7 +146,7 @@ function render_question_media($q) {
                     <div class="question-container">
                         <div class="question-display">
                             <div class="question-number-display">
-                                Vraag <?php echo $current_question['question_number']; ?>
+                                Vraag <?php echo intval($current_question['question_number']); ?>
                             </div>
                             <div class="question-category-display">
                                 <?php echo htmlspecialchars($current_question['category']); ?>

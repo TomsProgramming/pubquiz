@@ -12,7 +12,11 @@ $message_type = '';
 
 $form = [];
 
-$current_week = isset($_GET['week']) && is_numeric($_GET['week']) ? intval($_GET['week']) : 1;
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['week']) && is_numeric($_POST['week'])) {
+    $current_week = intval($_POST['week']);
+} else {
+    $current_week = isset($_GET['week']) && is_numeric($_GET['week']) ? intval($_GET['week']) : 1;
+}
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     csrf_validate();
@@ -70,8 +74,8 @@ $type_icons = [
 
         <div class="content">
             <?php if ($message): ?>
-                <div class="alert alert-<?php echo $message_type; ?>">
-                    <?php echo htmlspecialchars($message); ?>
+                <div class="alert alert-<?= $message_type ?>">
+                    <?= htmlspecialchars($message) ?>
                 </div>
             <?php endif; ?>
 
@@ -81,11 +85,11 @@ $type_icons = [
                 <form method="GET" class="week-selector-inline">
                     <div class="form-group">
                         <label for="week">Huidige week</label>
-                        <input type="number" id="week" name="week" value="<?php echo $current_week; ?>" min="1">
+                        <input type="number" id="week" name="week" value="<?= $current_week ?>" min="1">
                     </div>
                     <button type="submit" class="btn btn-secondary">Ga naar week</button>
                 </form>
-                <p class="week-hint">Volgende week beschikbaar: <strong><?php echo $next_week; ?></strong></p>
+                <p class="week-hint">Volgende week beschikbaar: <strong><?= $next_week ?></strong></p>
             </div>
 
             <?php
@@ -257,20 +261,11 @@ $type_icons = [
                     </thead>
                     <tbody id="questions-sortable">
                         <?php
-                        $stmt = $conn->prepare("SELECT id, question_number, question_type, question, category, answer FROM questions WHERE week = ? ORDER BY display_order ASC, question_number ASC");
-                        if ($stmt) {
-                            $stmt->bind_param("i", $current_week);
-                            $stmt->execute();
-                            $result = $stmt->get_result();
-                        } else {
-                            $result = false;
-                        }
-
-                        if ($result && $result->num_rows > 0) {
-                            while ($row = $result->fetch_assoc()) {
+                        $week_questions = get_questions_for_week($current_week);
+                        if ($week_questions) {
+                            foreach ($week_questions as $row) {
                                 $icon = $type_icons[$row['question_type']] ?? '📝';
                                 $answer_preview = $row['answer'] ?: '—';
-                                
                                 ?>
                                 <tr data-id='<?= intval($row['id']) ?>'>
                                     <td class='drag-handle' title='Sleep om te verplaatsen'>≡</td>
@@ -285,6 +280,7 @@ $type_icons = [
                                             <input type='hidden' name='action' value='delete'>
                                             <input type='hidden' name='csrf_token' value='<?= csrf_token() ?>'>
                                             <input type='hidden' name='question_id' value='<?= intval($row['id']) ?>'>
+                                            <input type='hidden' name='week' value='<?= $current_week ?>'>
                                             <button type='submit' class='btn btn-small btn-danger'>Verwijderen</button>
                                         </form>
                                     </td>
@@ -302,6 +298,7 @@ $type_icons = [
     </div>
 
     <!-- SortableJS voor drag-drop -->
+    <script>const CSRF_TOKEN = <?= json_encode(csrf_token()) ?>;</script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
     <script>
         // Toon/verberg velden per vraag type
@@ -375,7 +372,7 @@ $type_icons = [
                     const ids = Array.from(sortable.querySelectorAll('tr[data-id]')).map(tr => parseInt(tr.dataset.id));
                     fetch('reorder_questions.php', {
                         method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
+                        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN},
                         body: JSON.stringify({order: ids}),
                     }).then(r => r.json()).then(data => {
                         if (!data.ok) alert('Fout bij opslaan volgorde: ' + (data.error || 'onbekend'));

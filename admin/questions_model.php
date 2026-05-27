@@ -1,6 +1,28 @@
 <?php
 
 /**
+ * Geeft alle vragen voor een week terug, gesorteerd op weergavevolgorde.
+ *
+ * @param int $week Weeknummer
+ * @return array[] Lijst van vraagrijen als associatief array
+ */
+function get_questions_for_week(int $week): array
+{
+    global $conn;
+
+    $stmt = $conn->prepare("SELECT id, question_number, question_type, question, category, answer FROM questions WHERE week = ? ORDER BY display_order ASC, question_number ASC");
+    if (!$stmt) return [];
+    $stmt->bind_param("i", $week);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $rows = [];
+    while ($row = $result->fetch_assoc()) {
+        $rows[] = $row;
+    }
+    return $rows;
+}
+
+/**
  * Geeft het hoogste weeknummer terug dat in de database bestaat.
  *
  * @return int Hoogste week (0 als er nog geen vragen zijn)
@@ -298,6 +320,10 @@ function handle_delete_question(int $question_id): array {
 function handle_add_bulk(int $week, string $bulk_text, string $default_category): array {
     global $conn;
 
+    if ($week < 1) {
+        return ['message' => 'Weeknummer moet minimaal 1 zijn', 'message_type' => 'error'];
+    }
+
     $lines  = explode("\n", $bulk_text);
     $added  = 0;
     $failed = 0;
@@ -367,9 +393,10 @@ function handle_add_bulk(int $week, string $bulk_text, string $default_category)
  * }
  */
 function handle_add_question(array $post, array $files): array {
+    global $conn;
+
     $week                  = intval($post['week']);
     $question_number_input = trim($post['question_number'] ?? '');
-    $question_number       = $question_number_input === '' ? next_question_number($week) : intval($question_number_input);
     $question              = trim($post['question']);
     $category              = trim($post['category'] ?? 'Algemeen');
     $question_type         = $post['question_type'] ?? 'text';
@@ -381,11 +408,30 @@ function handle_add_question(array $post, array $files): array {
 
     $answer = trim($post['answer'] ?? '');
 
+    if ($week < 1) {
+        return ['message' => 'Weeknummer moet minimaal 1 zijn', 'message_type' => 'error', 'form' => $post];
+    }
+    if ($question_number_input !== '' && intval($question_number_input) < 1) {
+        return ['message' => 'Vraagnummer moet minimaal 1 zijn', 'message_type' => 'error', 'form' => $post];
+    }
+
+    $question_number = $question_number_input === '' ? next_question_number($week) : intval($question_number_input);
+
+    if ($category === '') {
+        $category = 'Algemeen';
+    }
     if (empty($question)) {
         return ['message' => 'Vraag mag niet leeg zijn', 'message_type' => 'error', 'form' => $post];
     }
     if ($question_type === 'text' && empty($answer)) {
         return ['message' => 'Antwoord mag niet leeg zijn bij tekst-vraag', 'message_type' => 'error', 'form' => $post];
+    }
+    if ($question_type === 'multiple_choice') {
+        $option_texts = is_array($post['option_text'] ?? null) ? $post['option_text'] : [];
+        $filled_options = array_filter($option_texts, fn($t) => trim((string)$t) !== '');
+        if (count($filled_options) < 2) {
+            return ['message' => 'MC-vraag vereist minimaal 2 antwoordopties met tekst', 'message_type' => 'error', 'form' => $post];
+        }
     }
 
     $media = resolve_question_media($question_type, $post, $files);
@@ -395,19 +441,24 @@ function handle_add_question(array $post, array $files): array {
     }
 
     $display_order = next_display_order($week);
+
+    $conn->begin_transaction();
+
     $new_id = insert_question(
         $week, $question_number, $question, $answer, $category, $question_type, $display_order,
         $media['media_path'], $media['video_source'], $media['video_youtube_id'], $media['video_start'], $media['video_end']
     );
 
     if ($new_id === false) {
-        global $conn;
+        $conn->rollback();
         return ['message' => 'Fout: ' . $conn->error, 'message_type' => 'error', 'form' => $post];
     }
 
     if ($question_type === 'multiple_choice' && isset($post['option_text']) && is_array($post['option_text'])) {
         insert_mc_options($new_id, $post['option_text'], $post['option_correct'] ?? [], $files['option_image'] ?? null);
     }
+
+    $conn->commit();
 
     return ['message' => 'Vraag succesvol toegevoegd', 'message_type' => 'success', 'form' => []];
 }

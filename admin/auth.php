@@ -6,7 +6,7 @@ session_start();
  *
  * @return bool True als de admin is ingelogd, anders false
  */
-function isAdminLoggedIn()
+function isAdminLoggedIn(): bool
 {
     return isset($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true;
 }
@@ -16,7 +16,7 @@ function isAdminLoggedIn()
  * 
  * @return redirects naar login.php als de admin niet is ingelogd
  */
-function requireAdmin()
+function requireAdmin(): void
 {
     if (!isAdminLoggedIn()) {
         header('Location: login.php');
@@ -29,7 +29,7 @@ function requireAdmin()
  * 
  * @return redirects naar index.php als de admin is ingelogd
  */
-function redirectIfLoggedIn()
+function redirectIfLoggedIn(): void
 {
     if (isAdminLoggedIn()) {
         header('Location: index.php');

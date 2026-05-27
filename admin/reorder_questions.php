@@ -8,6 +8,13 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
     exit;
 }
 
+$csrf_header = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+if (!isset($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $csrf_header)) {
+    http_response_code(403);
+    echo json_encode(['ok' => false, 'error' => 'Ongeldige aanvraag (CSRF)']);
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['ok' => false, 'error' => 'Method not allowed']);
