@@ -21,13 +21,14 @@ include 'database_connect.php';
                 <h2 style="text-align: center; margin-bottom: 50px;">Ranglijst</h2>
                 
                 <?php
-                $stmt = $conn->prepare("SELECT `name`, `score` FROM teams ORDER BY score DESC LIMIT 3");
-                $stmt->execute();
-                $result = $stmt->get_result();
                 $top_teams = [];
-                if ($result && $result->num_rows > 0) {
-                    while ($row = $result->fetch_assoc()) {
-                        $top_teams[] = $row;
+                $stmt = $conn->prepare("SELECT `name`, `score` FROM teams ORDER BY score DESC LIMIT 3");
+                if ($stmt && $stmt->execute()) {
+                    $result = $stmt->get_result();
+                    if ($result) {
+                        while ($row = $result->fetch_assoc()) {
+                            $top_teams[] = $row;
+                        }
                     }
                 }
 
@@ -78,9 +79,11 @@ include 'database_connect.php';
                     </thead>
                     <tbody>
                         <?php
+                        $result = null;
                         $stmt = $conn->prepare("SELECT `name`, `score` FROM teams ORDER BY score DESC");
-                        $stmt->execute();
-                        $result = $stmt->get_result();
+                        if ($stmt && $stmt->execute()) {
+                            $result = $stmt->get_result();
+                        }
                         $rank = 1;
 
                         if ($result && $result->num_rows > 0) {

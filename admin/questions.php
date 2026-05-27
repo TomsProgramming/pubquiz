@@ -15,234 +15,27 @@ $form = [];
 $current_week = isset($_GET['week']) && is_numeric($_GET['week']) ? intval($_GET['week']) : 1;
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    csrf_validate();
     if (isset($_POST['action'])) {
-        if ($_POST['action'] == 'add') {
-            $week = intval($_POST['week']);
-            $question_number_input = trim($_POST['question_number'] ?? '');
-            $question_number = $question_number_input === '' ? next_question_number($week) : intval($question_number_input);
-            $question = trim($_POST['question']);
-            $category = trim($_POST['category'] ?? 'Algemeen');
-            $question_type = $_POST['question_type'] ?? 'text';
-
-            $allowed_types = ['text', 'multiple_choice', 'video', 'audio', 'photo'];
-            if (!in_array($question_type, $allowed_types, true)) {
-                $question_type = 'text';
-            }
-
-            // Voor text en multiple_choice is "answer" een tekstveld; voor media types is het optioneel (uitleg/beschrijving)
-            $answer = trim($_POST['answer'] ?? '');
-
-            if (empty($question)) {
-                $message = "Vraag mag niet leeg zijn";
-                $message_type = 'error';
-                $form = $_POST;
-            } elseif ($question_type === 'text' && empty($answer)) {
-                $message = "Antwoord mag niet leeg zijn bij tekst-vraag";
-                $message_type = 'error';
-                $form = $_POST;
-            } else {
-                $media_path = null;
-                $video_source = null;
-                $video_youtube_id = null;
-                $video_start = null;
-                $video_end = null;
-                $upload_error = null;
-
-                // Per type upload/validatie afhandelen
-                if ($question_type === 'photo') {
-                    $result = handle_upload($_FILES['photo_file'] ?? null, UPLOAD_TYPE_PHOTO);
-                    if (!$result['ok']) $upload_error = $result['error'];
-                    else $media_path = $result['path'];
-                } elseif ($question_type === 'audio') {
-                    $result = handle_upload($_FILES['audio_file'] ?? null, UPLOAD_TYPE_AUDIO);
-                    if (!$result['ok']) $upload_error = $result['error'];
-                    else $media_path = $result['path'];
-                } elseif ($question_type === 'video') {
-                    $video_source = ($_POST['video_source'] ?? 'upload') === 'youtube' ? 'youtube' : 'upload';
-                    $video_start = isset($_POST['video_start']) && $_POST['video_start'] !== '' ? intval($_POST['video_start']) : null;
-                    $video_end = isset($_POST['video_end']) && $_POST['video_end'] !== '' ? intval($_POST['video_end']) : null;
-
-                    if ($video_source === 'youtube') {
-                        $youtube_id = extract_youtube_id($_POST['video_youtube_url'] ?? '');
-                        if (!$youtube_id) {
-                            $upload_error = 'Ongeldige YouTube URL of ID';
-                        } else {
-                            $video_youtube_id = $youtube_id;
-                        }
-                    } else {
-                        $result = handle_upload($_FILES['video_file'] ?? null, UPLOAD_TYPE_VIDEO);
-                        if (!$result['ok']) $upload_error = $result['error'];
-                        else $media_path = $result['path'];
-                    }
-                }
-
-                if ($upload_error) {
-                    $message = "Fout: " . $upload_error;
-                    $message_type = 'error';
-                    $form = $_POST;
-                } else {
-                    $display_order = next_display_order($week);
-
-                    $stmt = $conn->prepare("INSERT INTO questions (week, question_number, question, answer, category, points, question_type, display_order, media_path, video_source, video_youtube_id, video_start, video_end) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)");
-                    // Types: i i s s s s i s s s i i  (12 parameters)
-                    $stmt->bind_param("iissssisssii", $week, $question_number, $question, $answer, $category, $question_type, $display_order, $media_path, $video_source, $video_youtube_id, $video_start, $video_end);
-
-                    if ($stmt->execute()) {
-                        $new_question_id = $conn->insert_id;
-
-                        // Multiple choice opties verwerken
-                        if ($question_type === 'multiple_choice' && isset($_POST['option_text']) && is_array($_POST['option_text'])) {
-                            $option_texts = $_POST['option_text'];
-                            $option_correct = $_POST['option_correct'] ?? [];
-                            $option_files = $_FILES['option_image'] ?? null;
-
-                            $opt_stmt = $conn->prepare("INSERT INTO answer_options (question_id, option_text, option_image_path, is_correct, display_order) VALUES (?, ?, ?, ?, ?)");
-
-                            foreach ($option_texts as $idx => $opt_text) {
-                                $opt_text = trim($opt_text);
-                                $opt_image_path = null;
-
-                                // Upload optionele afbeelding
-                                if ($option_files && isset($option_files['error'][$idx]) && $option_files['error'][$idx] !== UPLOAD_ERR_NO_FILE) {
-                                    $file_arr = [
-                                        'name' => $option_files['name'][$idx],
-                                        'type' => $option_files['type'][$idx],
-                                        'tmp_name' => $option_files['tmp_name'][$idx],
-                                        'error' => $option_files['error'][$idx],
-                                        'size' => $option_files['size'][$idx],
-                                    ];
-                                    $opt_result = handle_upload($file_arr, UPLOAD_TYPE_OPTION);
-                                    if ($opt_result['ok']) {
-                                        $opt_image_path = $opt_result['path'];
-                                    }
-                                }
-
-                                // Skip lege opties (geen tekst EN geen afbeelding)
-                                if ($opt_text === '' && !$opt_image_path) continue;
-
-                                $is_correct = isset($option_correct[$idx]) ? 1 : 0;
-                                $opt_order = $idx + 1;
-                                $opt_stmt->bind_param("issii", $new_question_id, $opt_text, $opt_image_path, $is_correct, $opt_order);
-                                $opt_stmt->execute();
-                            }
-                        }
-
-                        $message = "Vraag succesvol toegevoegd";
-                        $message_type = 'success';
-                    } else {
-                        $message = "Fout: " . $conn->error;
-                        $message_type = 'error';
-                        $form = $_POST;
-                    }
-                }
-            }
-        } elseif ($_POST['action'] == 'delete') {
-            $question_id = intval($_POST['question_id']);
-
-            // Eerst media paths ophalen om bestanden op te ruimen
-            $stmt = $conn->prepare("SELECT media_path FROM questions WHERE id = ?");
-            $stmt->bind_param("i", $question_id);
-            $stmt->execute();
-            $media_row = $stmt->get_result()->fetch_assoc();
-
-            $opt_stmt = $conn->prepare("SELECT option_image_path FROM answer_options WHERE question_id = ?");
-            $opt_stmt->bind_param("i", $question_id);
-            $opt_stmt->execute();
-            $opt_result = $opt_stmt->get_result();
-            $opt_files = [];
-            while ($r = $opt_result->fetch_assoc()) {
-                if ($r['option_image_path']) $opt_files[] = $r['option_image_path'];
-            }
-
-            $del_stmt = $conn->prepare("DELETE FROM questions WHERE id = ?");
-            $del_stmt->bind_param("i", $question_id);
-
-            if ($del_stmt->execute()) {
-                // ON DELETE CASCADE verwijdert answer_options automatisch; nu nog bestanden opruimen
-                if ($media_row && $media_row['media_path']) delete_upload($media_row['media_path']);
-                foreach ($opt_files as $p) delete_upload($p);
-
-                $message = "Vraag verwijderd";
-                $message_type = 'success';
-            } else {
-                $message = "Fout: " . $conn->error;
-                $message_type = 'error';
-            }
-        } elseif ($_POST['action'] == 'add_bulk') {
-            $week = intval($_POST['week']);
-            $bulk_text = $_POST['bulk_text'];
-            $default_category = trim($_POST['category'] ?? 'Algemeen');
-
-            // Parse bulk questions (format: 1. Question | Answer or 1. Question | Answer | Category)
-            $lines = explode("\n", $bulk_text);
-            $added = 0;
-            $failed = 0;
-
-            foreach ($lines as $line) {
-                $line = trim($line);
-                if (empty($line)) continue;
-
-                $category = $default_category;
-
-                if (preg_match('/^(\d+)\.\s*(.+?)\s*\|\s*(.+?)\s*(?:\|\s*(.+))?$/', $line, $matches)) {
-                    $question_number = intval($matches[1]);
-                    $question = trim($matches[2]);
-                    $answer = trim($matches[3]);
-                    if (!empty($matches[4])) {
-                        $category = trim($matches[4]);
-                    }
-                } elseif (strpos($line, '|') !== false) {
-                    $parts = explode('|', $line);
-                    $question = trim($parts[0]);
-                    $answer = trim($parts[1]);
-                    if (isset($parts[2])) {
-                        $category = trim($parts[2]);
-                    }
-                    // Pak het eerstvolgende vrije nummer uit de DB (voorkomt botsing met UNIQUE(week, question_number))
-                    $question_number = next_question_number($week);
-                } else {
-                    continue;
-                }
-
-                if (!empty($question) && !empty($answer)) {
-                    $display_order = next_display_order($week);
-                    $question_type = 'text';
-                    $stmt = $conn->prepare("INSERT INTO questions (week, question_number, question, answer, category, points, question_type, display_order) VALUES (?, ?, ?, ?, ?, 1, ?, ?)");
-                    $stmt->bind_param("iissssi", $week, $question_number, $question, $answer, $category, $question_type, $display_order);
-
-                    if ($stmt->execute()) {
-                        $added++;
-                    } else {
-                        $failed++;
-                    }
-                }
-            }
-
-            if ($failed > 0) {
-                $message = $added . " vragen toegevoegd, " . $failed . " mislukt (vraagnummer bestaat al?)";
-                $message_type = $added > 0 ? 'success' : 'error';
-            } else {
-                $message = $added . " vragen succesvol toegevoegd";
-                $message_type = 'success';
-            }
+        if ($_POST['action'] === 'add') {
+            $result = handle_add_question($_POST, $_FILES);
+            $message = $result['message'];
+            $message_type = $result['message_type'];
+            $form = $result['form'];
+        } elseif ($_POST['action'] === 'delete') {
+            $result = handle_delete_question(intval($_POST['question_id']));
+            $message = $result['message'];
+            $message_type = $result['message_type'];
+        } elseif ($_POST['action'] === 'add_bulk') {
+            $result = handle_add_bulk(intval($_POST['week']), $_POST['bulk_text'], trim($_POST['category'] ?? 'Algemeen'));
+            $message = $result['message'];
+            $message_type = $result['message_type'];
         }
     }
 }
 
-// Get max week
-$week_result = $conn->query("SELECT MAX(week) as max_week FROM questions");
-$week_row = $week_result->fetch_assoc();
-$max_week = $week_row['max_week'] ?? 0;
-$next_week = $max_week + 1;
-
-// Get all categories
-$categories_result = $conn->query("SELECT DISTINCT category FROM questions ORDER BY category ASC");
-$categories = [];
-if ($categories_result) {
-    while ($row = $categories_result->fetch_assoc()) {
-        $categories[] = $row['category'];
-    }
-}
+$next_week = get_max_week() + 1;
+$categories = get_all_categories();
 
 // Type-iconen
 $type_icons = [
@@ -321,6 +114,7 @@ $type_icons = [
                 <h2>Voeg Vraag Toe</h2>
                 <form method="POST" class="form" enctype="multipart/form-data">
                     <input type="hidden" name="action" value="add">
+                    <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
 
                     <div class="form-row">
                         <div class="form-group">
@@ -427,6 +221,7 @@ $type_icons = [
                 <h2>Bulk Vragen Toevoegen <span class="label-hint">(alleen tekst)</span></h2>
                 <form method="POST" class="form">
                     <input type="hidden" name="action" value="add_bulk">
+                    <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
                     <div class="form-row">
                         <div class="form-group">
                             <label for="bulk_week">Week</label>
@@ -462,31 +257,39 @@ $type_icons = [
                     </thead>
                     <tbody id="questions-sortable">
                         <?php
-                        $stmt = $conn->prepare("SELECT * FROM questions WHERE week = ? ORDER BY display_order ASC, question_number ASC");
-                        $stmt->bind_param("i", $current_week);
-                        $stmt->execute();
-                        $result = $stmt->get_result();
+                        $stmt = $conn->prepare("SELECT id, question_number, question_type, question, category, answer FROM questions WHERE week = ? ORDER BY display_order ASC, question_number ASC");
+                        if ($stmt) {
+                            $stmt->bind_param("i", $current_week);
+                            $stmt->execute();
+                            $result = $stmt->get_result();
+                        } else {
+                            $result = false;
+                        }
 
                         if ($result && $result->num_rows > 0) {
                             while ($row = $result->fetch_assoc()) {
                                 $icon = $type_icons[$row['question_type']] ?? '📝';
                                 $answer_preview = $row['answer'] ?: '—';
-                                echo "<tr data-id='" . intval($row['id']) . "'>
+                                
+                                ?>
+                                <tr data-id='<?= intval($row['id']) ?>'>
                                     <td class='drag-handle' title='Sleep om te verplaatsen'>≡</td>
-                                    <td>" . intval($row['question_number']) . "</td>
-                                    <td class='type-icon-cell' title='" . htmlspecialchars($row['question_type']) . "'>" . $icon . "</td>
-                                    <td>" . htmlspecialchars(mb_substr($row['question'], 0, 60)) . (mb_strlen($row['question']) > 60 ? '…' : '') . "</td>
-                                    <td>" . htmlspecialchars($row['category']) . "</td>
-                                    <td>" . htmlspecialchars(mb_substr($answer_preview, 0, 40)) . "</td>
+                                    <td><?= intval($row['question_number']) ?></td>
+                                    <td class='type-icon-cell' title='<?= htmlspecialchars($row['question_type']) ?>'><?= $icon ?></td>
+                                    <td><?= htmlspecialchars(mb_substr($row['question'], 0, 60)) . (mb_strlen($row['question']) > 60 ? '…' : '') ?></td>
+                                    <td><?= htmlspecialchars($row['category']) ?></td>
+                                    <td><?= htmlspecialchars(mb_substr($answer_preview, 0, 40)) ?></td>
                                     <td>
-                                        <a href='edit_question.php?id=" . intval($row['id']) . "' class='btn btn-small btn-secondary'>Bewerken</a>
+                                        <a href='edit_question.php?id=<?= intval($row['id']) ?>' class='btn btn-small btn-secondary'>Bewerken</a>
                                         <form method='POST' class='inline-form' onsubmit='return confirm(\"Zeker weten?\");'>
                                             <input type='hidden' name='action' value='delete'>
-                                            <input type='hidden' name='question_id' value='" . intval($row['id']) . "'>
+                                            <input type='hidden' name='csrf_token' value='<?= csrf_token() ?>'>
+                                            <input type='hidden' name='question_id' value='<?= intval($row['id']) ?>'>
                                             <button type='submit' class='btn btn-small btn-danger'>Verwijderen</button>
                                         </form>
                                     </td>
-                                </tr>";
+                                </tr>
+                                <?php
                             }
                         } else {
                             echo "<tr><td colspan='7' class='empty'>Geen vragen voor week " . intval($current_week) . "</td></tr>";

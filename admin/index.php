@@ -31,20 +31,23 @@ include '../database_connect.php';
                 <div class="card">
                     <h2>Statistieken</h2>
                     <?php
-                    $teams_result = $conn->prepare("SELECT COUNT(`id`) as total_teams FROM teams");
-                    $teams_result->execute();
-                    $teams_row = $teams_result->get_result()->fetch_assoc();
-                    $total_teams = $teams_row['total_teams'];
+                    $total_teams = 0;
+                    $stmt = $conn->prepare("SELECT COUNT(`id`) as total_teams FROM teams");
+                    if ($stmt && $stmt->execute()) {
+                        $total_teams = $stmt->get_result()->fetch_assoc()['total_teams'] ?? 0;
+                    }
 
-                    $questions_result = $conn->prepare("SELECT COUNT(`id`) as total_questions FROM questions");
-                    $questions_result->execute();
-                    $questions_row = $questions_result->get_result()->fetch_assoc();
-                    $total_questions = $questions_row['total_questions'];
+                    $total_questions = 0;
+                    $stmt = $conn->prepare("SELECT COUNT(`id`) as total_questions FROM questions");
+                    if ($stmt && $stmt->execute()) {
+                        $total_questions = $stmt->get_result()->fetch_assoc()['total_questions'] ?? 0;
+                    }
 
-                    $weeks_result = $conn->prepare("SELECT MAX(`week`) as max_week FROM questions");
-                    $weeks_result->execute();
-                    $weeks_row = $weeks_result->get_result()->fetch_assoc();
-                    $current_week = $weeks_row['max_week'] ?? 0;
+                    $current_week = 0;
+                    $stmt = $conn->prepare("SELECT MAX(`week`) as max_week FROM questions");
+                    if ($stmt && $stmt->execute()) {
+                        $current_week = $stmt->get_result()->fetch_assoc()['max_week'] ?? 0;
+                    }
                     ?>
                     <div class="stats">
                         <div class="stat">
@@ -76,16 +79,17 @@ include '../database_connect.php';
                         <tbody>
                             <?php
                             $stmt = $conn->prepare("SELECT `name`, `score` FROM teams ORDER BY score DESC LIMIT 5");
-                            $stmt->execute();
-                            $result = $stmt->get_result();
                             $rank = 1;
-                            while ($row = $result->fetch_assoc()) {
-                                echo "<tr>
-                                    <td>" . $rank . "</td>
-                                    <td>" . htmlspecialchars($row['name']) . "</td>
-                                    <td><strong>" . $row['score'] . "</strong></td>
-                                </tr>";
-                                $rank++;
+                            if ($stmt && $stmt->execute()) {
+                                $result = $stmt->get_result();
+                                while ($row = $result->fetch_assoc()) {
+                                    echo "<tr>
+                                        <td>" . $rank . "</td>
+                                        <td>" . htmlspecialchars($row['name']) . "</td>
+                                        <td><strong>" . $row['score'] . "</strong></td>
+                                    </tr>";
+                                    $rank++;
+                                }
                             }
                             ?>
                         </tbody>
@@ -116,10 +120,11 @@ include '../database_connect.php';
                         </thead>
                         <tbody>
                             <?php
+                            $recent_result = null;
                             $recent = $conn->prepare("SELECT `question_number`, `question`, `category`, `answer` FROM questions WHERE week = ? ORDER BY question_number LIMIT 10");
-                            $recent->bind_param("i", $current_week);
-                            $recent->execute();
-                            $recent_result = $recent->get_result();
+                            if ($recent && $recent->bind_param("i", $current_week) && $recent->execute()) {
+                                $recent_result = $recent->get_result();
+                            }
                             if ($recent_result && $recent_result->num_rows > 0) {
                                 while ($row = $recent_result->fetch_assoc()) {
                                     ?>
